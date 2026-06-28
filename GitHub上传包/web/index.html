@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>旬度内贸排产优化</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>旬度内贸排产优化</h1>
+        <p id="status">正在读取默认数据</p>
+      </div>
+      <div class="actions">
+        <button id="loadDefaults" type="button">重载数据</button>
+        <button id="solve" type="button" class="primary">生成方案</button>
+      </div>
+    </header>
+
+    <main>
+      <nav class="tabs" aria-label="输入区域">
+        <button class="active" data-tab="basic">资源与日历</button>
+        <button data-tab="foreign">外贸与效率</button>
+        <button data-tab="rules">保供与约束</button>
+        <button data-tab="result">结果</button>
+      </nav>
+
+      <section id="basic" class="tab-panel active">
+        <div class="grid two">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>旬度资源</h2>
+              <button data-add="resources" type="button">新增</button>
+            </div>
+            <div id="resources"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>生产日历</h2>
+              <button data-add="calendar" type="button">新增</button>
+            </div>
+            <div id="calendar"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="foreign" class="tab-panel">
+        <div class="grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>外贸排产明细</h2>
+              <button data-add="foreign" type="button">新增</button>
+            </div>
+            <div id="foreignTable"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>产品生产效率</h2>
+              <button data-add="efficiency" type="button">新增</button>
+            </div>
+            <div id="efficiency"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>现金流</h2>
+              <button data-add="cashflow" type="button">新增</button>
+            </div>
+            <div id="cashflow"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="rules" class="tab-panel">
+        <div class="grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>500兆帕及600兆帕需求</h2>
+              <button data-add="demands" type="button">新增</button>
+            </div>
+            <div id="demands"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>400兆帕规格比例</h2>
+              <button data-add="ratios" type="button">新增</button>
+            </div>
+            <div id="ratios"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>400兆帕客户需求预报</h2>
+              <button data-add="forecast" type="button">新增</button>
+            </div>
+            <div id="forecast"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="result" class="tab-panel">
+        <div id="errorBox" class="error hidden"></div>
+        <div class="grid">
+          <div class="panel">
+            <h2>内贸排产方案</h2>
+            <div id="plan"></div>
+          </div>
+          <div class="panel">
+            <h2>方案校验</h2>
+            <div id="checks"></div>
+          </div>
+          <div class="panel">
+            <h2>400兆帕需求建议</h2>
+            <div id="suggestions"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
