@@ -1,14 +1,16 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
-for local_libs in (BASE_DIR / "libs", BASE_DIR / ".python-libs2", BASE_DIR / ".python-libs"):
+SEARCH_DIRS = [BASE_DIR, Path.cwd()]
+for local_libs in [candidate / name for candidate in SEARCH_DIRS for name in ("libs", ".python-libs2", ".python-libs")]:
     if local_libs.exists():
         sys.path.insert(0, str(local_libs))
 
@@ -19,9 +21,19 @@ except ImportError:  # pragma: no cover
 
 import schedule_model as model
 
-
-DEFAULT_EXCEL = Path.home() / "Desktop" / "排产所需文件 - 副本.xlsx"
 STATIC_DIR = BASE_DIR / "web"
+
+EMPTY_DEFAULTS = {
+    "resources": [{"period": "上旬", "total": "", "foreign": "", "domestic": "", "hrb500e": "", "six_hundred": "", "four_hundred": ""}],
+    "calendar": [{"period": "上旬", "line": "", "days": ""}],
+    "foreign": [],
+    "efficiency": [],
+    "cashflow": [],
+    "demands": [],
+    "ratios": [],
+    "forecast": [],
+    "message": "已打开空模板，请直接在网页中输入数据。",
+}
 
 
 def clean_rows(rows):
@@ -45,46 +57,79 @@ def to_int(value, default=0):
 
 
 def read_defaults() -> dict:
-    empty = {
-        "resources": [],
-        "calendar": [],
-        "foreign": [],
-        "efficiency": [],
-        "cashflow": [],
-        "demands": [],
-        "ratios": [],
-        "forecast": [],
-        "message": "未找到默认 Excel，页面已打开空模板。",
-    }
+    return json.loads(json.dumps(EMPTY_DEFAULTS, ensure_ascii=False))
+
+
+def parse_multipart_file(body: bytes, content_type: str) -> bytes:
+    marker = "boundary="
+    if marker not in content_type:
+        raise model.ModelInputError("导入失败：没有找到上传文件边界。")
+    boundary = content_type.split(marker, 1)[1].split(";", 1)[0].strip().strip('"')
+    delimiter = ("--" + boundary).encode("utf-8")
+    for part in body.split(delimiter):
+        if b"filename=" not in part:
+            continue
+        header_end = part.find(b"\r\n\r\n")
+        if header_end < 0:
+            continue
+        content = part[header_end + 4 :]
+        if content.endswith(b"\r\n"):
+            content = content[:-2]
+        if content.endswith(b"--"):
+            content = content[:-2]
+        if not content:
+            raise model.ModelInputError("导入失败：上传文件为空。")
+        return content
+    raise model.ModelInputError("导入失败：没有读取到 Excel 文件。")
+
+
+def row_value(row: dict, names: list[str]):
+    for name in names:
+        value = row.get(name)
+        if value not in ("", None):
+            return value
+    return ""
+
+
+def import_excel_rows(table: str, file_bytes: bytes) -> list[dict]:
     if load_workbook is None:
-        empty["message"] = "缺少 openpyxl，无法预填 Excel 数据。"
-        return empty
-    if not DEFAULT_EXCEL.exists():
-        return empty
-
-    wb = load_workbook(DEFAULT_EXCEL, data_only=True)
-    resource_ws = model.find_sheet(wb, ["旬度资源说明"])
-    resources = model.parse_resources(resource_ws)
-    default_period = resources[0].period if resources else "上旬"
-    calendar = model.parse_calendar(model.find_sheet(wb, ["生产日历"]), default_period)
-    foreign = model.parse_foreign(model.find_sheet(wb, ["外贸排产明细"]))
-    efficiency = model.parse_efficiency(model.find_sheet(wb, ["产品生产效率表"]))
-    cashflow = model.parse_cashflow(model.find_sheet(wb, ["现金流量表"]))
-    demands = model.parse_demands(model.find_sheet(wb, ["HRB500E及600兆帕需求表", "保供量"], required=False))
-    ratios = model.parse_ratios(wb, resource_ws)
-    forecast = model.parse_forecast(model.find_sheet(wb, ["400兆帕客户需求预报"], required=False), default_period)
-
-    return {
-        "resources": [row.__dict__ for row in resources],
-        "calendar": [{"period": period, "line": line, "days": days} for (period, line), days in sorted(calendar.items())],
-        "foreign": [row.__dict__ for row in foreign],
-        "efficiency": [{"line": line, "grade": grade, "spec": spec, "daily": daily} for (line, grade, spec), daily in sorted(efficiency.items())],
-        "cashflow": [{"grade": grade, "spec": spec, "cashflow": cash} for (grade, spec), cash in sorted(cashflow.items())],
-        "demands": [row.__dict__ for row in demands],
-        "ratios": [row.__dict__ for row in ratios],
-        "forecast": [row.__dict__ for row in forecast],
-        "message": f"已从 {DEFAULT_EXCEL} 预填数据。",
-    }
+        raise model.ModelInputError("导入失败：缺少 openpyxl 依赖。")
+    wb = load_workbook(BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    if table == "foreign":
+        rows = model.sheet_rows(ws, ["旬度", "产线", "牌号", "规格", "吨位"])
+        return [
+            {
+                "period": model.norm_text(row_value(row, ["旬度"])),
+                "line": model.norm_text(row_value(row, ["产线", "生产条线"])),
+                "grade": model.norm_text(row_value(row, ["牌号"])),
+                "spec": row_value(row, ["规格"]),
+                "tons": row_value(row, ["吨位", "外贸吨位"]),
+            }
+            for row in rows
+        ]
+    if table == "efficiency":
+        rows = model.sheet_rows(ws, ["产线", "牌号", "规格", "日产量"])
+        return [
+            {
+                "line": model.norm_text(row_value(row, ["产线", "生产条线"])),
+                "grade": model.norm_text(row_value(row, ["牌号"])),
+                "spec": row_value(row, ["规格"]),
+                "daily": row_value(row, ["日产量", "日均产量"]),
+            }
+            for row in rows
+        ]
+    if table == "cashflow":
+        rows = model.sheet_rows(ws, ["牌号", "规格", "现金流"])
+        return [
+            {
+                "grade": model.norm_text(row_value(row, ["牌号"])),
+                "spec": row_value(row, ["规格"]),
+                "cashflow": row_value(row, ["现金流"]),
+            }
+            for row in rows
+        ]
+    raise model.ModelInputError("导入失败：不支持的表格类型。")
 
 
 def solve_payload(payload: dict) -> dict:
@@ -170,10 +215,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/defaults":
-            try:
-                self.send_json(200, read_defaults())
-            except model.ModelInputError as exc:
-                self.send_json(400, {"error": str(exc)})
+            self.send_json(200, read_defaults())
             return
         target = STATIC_DIR / ("index.html" if parsed.path in ("/", "") else parsed.path.lstrip("/"))
         if not target.resolve().is_relative_to(STATIC_DIR.resolve()) or not target.exists():
@@ -192,13 +234,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):  # noqa: N802
-        if urlparse(self.path).path != "/api/solve":
-            self.send_error(404)
-            return
+        parsed = urlparse(self.path)
         length = int(self.headers.get("Content-Length", "0"))
         try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            self.send_json(200, solve_payload(payload))
+            if parsed.path == "/api/solve":
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                self.send_json(200, solve_payload(payload))
+                return
+            if parsed.path == "/api/import-excel":
+                table = parse_qs(parsed.query).get("table", [""])[0]
+                body = self.rfile.read(length)
+                file_bytes = parse_multipart_file(body, self.headers.get("Content-Type", ""))
+                self.send_json(200, {"rows": import_excel_rows(table, file_bytes)})
+                return
+            self.send_error(404)
         except model.ModelInputError as exc:
             self.send_json(400, {"error": str(exc)})
         except Exception as exc:  # pragma: no cover
@@ -214,6 +263,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
