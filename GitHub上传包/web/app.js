@@ -6,7 +6,7 @@ const schemas = {
       ["total", "总资源"],
       ["foreign", "外贸资源"],
       ["domestic", "内贸资源", true],
-      ["hrb500e", "500兆帕保供"],
+      ["hrb500e", "HRB500E保供"],
       ["six_hundred", "600兆帕保供"],
       ["four_hundred", "400兆帕资源", true]
     ],
@@ -50,6 +50,7 @@ const schemas = {
 };
 
 const state = Object.fromEntries(Object.keys(schemas).map((key) => [key, []]));
+let pendingImportTable = null;
 
 function setStatus(text) {
   document.getElementById("status").textContent = text;
@@ -65,24 +66,28 @@ function formatNumber(value) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
 }
 
+function escapeAttr(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;");
+}
+
 function recalcResources() {
   state.resources.forEach((row) => {
-    const domestic = toNumber(row.total) - toNumber(row.foreign);
+    const total = toNumber(row.total);
+    const foreign = toNumber(row.foreign);
+    const domestic = total - foreign;
     const fourHundred = domestic - toNumber(row.hrb500e) - toNumber(row.six_hundred);
-    row.domestic = formatNumber(domestic);
-    row.four_hundred = formatNumber(fourHundred);
+    row.domestic = total || foreign ? formatNumber(domestic) : "";
+    row.four_hundred = total || foreign || row.hrb500e || row.six_hundred ? formatNumber(fourHundred) : "";
   });
 }
 
 function normalizeDefaults(data) {
-  state.resources = data.resources || [];
-  state.calendar = data.calendar || [];
-  state.foreign = data.foreign || [];
-  state.efficiency = data.efficiency || [];
-  state.cashflow = data.cashflow || [];
-  state.demands = data.demands || [];
-  state.ratios = data.ratios || [];
-  state.forecast = data.forecast || [];
+  Object.keys(schemas).forEach((key) => {
+    state[key] = data[key] || [];
+  });
   recalcResources();
 }
 
@@ -93,10 +98,8 @@ function renderEditableTable(key) {
   const headers = schema.columns.map(([, label]) => `<th>${label}</th>`).join("");
   const body = rows.map((row, index) => {
     const cells = schema.columns.map(([field, , readonly]) => {
-      const value = row[field] ?? "";
-      const safeValue = String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
       const attr = readonly ? "readonly aria-readonly=\"true\" class=\"readonly\"" : "";
-      return `<td><input ${attr} data-table="${key}" data-row="${index}" data-field="${field}" value="${safeValue}"></td>`;
+      return `<td><input ${attr} data-table="${key}" data-row="${index}" data-field="${field}" value="${escapeAttr(row[field])}"></td>`;
     }).join("");
     return `<tr>${cells}<td><button class="row-remove" data-remove="${key}" data-row="${index}" type="button">×</button></td></tr>`;
   }).join("");
@@ -110,25 +113,21 @@ function renderAllInputs() {
 
 function renderReadOnly(containerId, rows, headers) {
   const container = document.getElementById(containerId);
-  if (!rows.length) {
-    container.innerHTML = `<div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`;
-    return;
-  }
   const body = rows.map((row) => `<tr>${headers.map((header) => `<td>${row[header] ?? ""}</td>`).join("")}</tr>`).join("");
   container.innerHTML = `<div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 async function loadDefaults() {
-  setStatus("正在读取默认数据");
+  setStatus("正在重置空模板");
   const response = await fetch("/api/defaults");
   const data = await response.json();
   if (!response.ok) {
-    setStatus(data.error || "默认数据读取失败");
+    setStatus(data.error || "空模板读取失败");
     return;
   }
   normalizeDefaults(data);
   renderAllInputs();
-  setStatus(data.message || "默认数据已读取");
+  setStatus(data.message || "已打开空模板");
 }
 
 async function solve() {
@@ -155,10 +154,28 @@ async function solve() {
   setStatus("方案已生成");
 }
 
+async function importExcel(table, file) {
+  const form = new FormData();
+  form.append("file", file);
+  setStatus("正在导入 Excel");
+  const response = await fetch(`/api/import-excel?table=${encodeURIComponent(table)}`, {
+    method: "POST",
+    body: form
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    setStatus(data.error || "导入失败");
+    alert(data.error || "导入失败");
+    return;
+  }
+  state[table] = data.rows || [];
+  renderEditableTable(table);
+  setStatus(`已导入 ${state[table].length} 行`);
+}
+
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (!target.matches("input[data-table]")) return;
-  if (target.readOnly) return;
+  if (!target.matches("input[data-table]") || target.readOnly) return;
   const table = target.dataset.table;
   const row = Number(target.dataset.row);
   const field = target.dataset.field;
@@ -186,6 +203,22 @@ document.addEventListener("click", (event) => {
     const key = target.dataset.remove;
     state[key].splice(Number(target.dataset.row), 1);
     renderEditableTable(key);
+  }
+  if (target.dataset.togglePanel !== undefined) {
+    target.closest(".panel").classList.toggle("collapsed");
+  }
+  if (target.dataset.import) {
+    pendingImportTable = target.dataset.import;
+    const input = document.getElementById("excelImport");
+    input.value = "";
+    input.click();
+  }
+});
+
+document.getElementById("excelImport").addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  if (file && pendingImportTable) {
+    importExcel(pendingImportTable, file);
   }
 });
 
