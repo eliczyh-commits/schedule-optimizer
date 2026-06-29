@@ -10,10 +10,10 @@
     <header class="topbar">
       <div>
         <h1>旬度内贸排产优化</h1>
-        <p id="status">正在读取默认数据</p>
+        <p id="status">正在打开空模板</p>
       </div>
       <div class="actions">
-        <button id="loadDefaults" type="button">重载数据</button>
+        <button id="loadDefaults" type="button">重置空模板</button>
         <button id="solve" type="button" class="primary">生成方案</button>
       </div>
     </header>
@@ -30,17 +30,17 @@
         <div class="grid two">
           <div class="panel">
             <div class="panel-head">
-              <h2>旬度资源</h2>
+              <button class="panel-toggle" data-toggle-panel type="button">旬度资源</button>
               <button data-add="resources" type="button">新增</button>
             </div>
-            <div id="resources"></div>
+            <div class="panel-body"><div id="resources"></div></div>
           </div>
           <div class="panel">
             <div class="panel-head">
-              <h2>生产日历</h2>
+              <button class="panel-toggle" data-toggle-panel type="button">生产日历</button>
               <button data-add="calendar" type="button">新增</button>
             </div>
-            <div id="calendar"></div>
+            <div class="panel-body"><div id="calendar"></div></div>
           </div>
         </div>
       </section>
@@ -49,24 +49,33 @@
         <div class="grid">
           <div class="panel">
             <div class="panel-head">
-              <h2>外贸排产明细</h2>
-              <button data-add="foreign" type="button">新增</button>
+              <button class="panel-toggle" data-toggle-panel type="button">外贸排产明细</button>
+              <div class="panel-actions">
+                <button data-import="foreign" type="button">导入Excel</button>
+                <button data-add="foreign" type="button">新增</button>
+              </div>
             </div>
-            <div id="foreignTable"></div>
+            <div class="panel-body"><div id="foreignTable"></div></div>
           </div>
           <div class="panel">
             <div class="panel-head">
-              <h2>产品生产效率</h2>
-              <button data-add="efficiency" type="button">新增</button>
+              <button class="panel-toggle" data-toggle-panel type="button">产品生产效率</button>
+              <div class="panel-actions">
+                <button data-import="efficiency" type="button">导入Excel</button>
+                <button data-add="efficiency" type="button">新增</button>
+              </div>
             </div>
-            <div id="efficiency"></div>
+            <div class="panel-body"><div id="efficiency"></div></div>
           </div>
           <div class="panel">
             <div class="panel-head">
-              <h2>现金流</h2>
-              <button data-add="cashflow" type="button">新增</button>
+              <button class="panel-toggle" data-toggle-panel type="button">现金流</button>
+              <div class="panel-actions">
+                <button data-import="cashflow" type="button">导入Excel</button>
+                <button data-add="cashflow" type="button">新增</button>
+              </div>
             </div>
-            <div id="cashflow"></div>
+            <div class="panel-body"><div id="cashflow"></div></div>
           </div>
         </div>
       </section>
@@ -75,24 +84,24 @@
         <div class="grid">
           <div class="panel">
             <div class="panel-head">
-              <h2>500兆帕及600兆帕需求</h2>
+              <button class="panel-toggle" data-toggle-panel type="button">HRB500E及600兆帕需求</button>
               <button data-add="demands" type="button">新增</button>
             </div>
-            <div id="demands"></div>
+            <div class="panel-body"><div id="demands"></div></div>
           </div>
           <div class="panel">
             <div class="panel-head">
-              <h2>400兆帕规格比例</h2>
+              <button class="panel-toggle" data-toggle-panel type="button">400兆帕规格比例</button>
               <button data-add="ratios" type="button">新增</button>
             </div>
-            <div id="ratios"></div>
+            <div class="panel-body"><div id="ratios"></div></div>
           </div>
           <div class="panel">
             <div class="panel-head">
-              <h2>400兆帕客户需求预报</h2>
+              <button class="panel-toggle" data-toggle-panel type="button">400兆帕客户需求预报</button>
               <button data-add="forecast" type="button">新增</button>
             </div>
-            <div id="forecast"></div>
+            <div class="panel-body"><div id="forecast"></div></div>
           </div>
         </div>
       </section>
@@ -116,6 +125,7 @@
       </section>
     </main>
 
+    <input id="excelImport" class="hidden" type="file" accept=".xlsx,.xlsm" />
     <script src="/app.js"></script>
   </body>
 </html>
