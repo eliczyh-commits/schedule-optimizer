@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
-for LOCAL_LIBS in (BASE_DIR / "libs", BASE_DIR / ".python-libs2", BASE_DIR / ".python-libs"):
+SEARCH_DIRS = [BASE_DIR, Path.cwd()]
+for LOCAL_LIBS in [candidate / name for candidate in SEARCH_DIRS for name in ("libs", ".python-libs2", ".python-libs")]:
     if LOCAL_LIBS.exists():
         sys.path.insert(0, str(LOCAL_LIBS))
 
@@ -87,10 +88,8 @@ def norm_text(value: Any) -> str:
 
 def norm_line(value: Any) -> str:
     text = norm_text(value).replace(" ", "")
-    if text.endswith("线"):
-        text = text[:-1]
-    return text
-
+    aliases = {"\u68d2\u4e94A": "\u68d2\u4e94A\u7ebf", "\u68d2\u4e94B": "\u68d2\u4e94B\u7ebf"}
+    return aliases.get(text, text)
 
 def norm_grade(value: Any) -> str:
     return norm_text(value).replace(" ", "").upper()
@@ -384,6 +383,245 @@ def eligible_lines(grade: str, spec: int, efficiency: dict[tuple[str, str, int],
     return sorted({line for line, g, s in efficiency if g == grade and s == spec})
 
 
+
+
+def ratio_percent_to_fraction(value: float) -> float:
+    """Accept either 10 for 10% or 0.1 for 10%."""
+    return value / 100 if abs(value) > 1 else value
+
+
+def format_pct(value: float) -> str:
+    number = value * 100
+    text = f"{number:.2f}".rstrip("0").rstrip(".")
+    return f"{text}%"
+
+
+def cn(text: str) -> str:
+    try:
+        return text.encode("ascii").decode("unicode_escape")
+    except UnicodeEncodeError:
+        return text
+
+
+def diag_item(kind: str, target: str, status: str, note: str) -> dict[str, Any]:
+    return {
+        cn("\u5206\u6790\u9879"): kind,
+        cn("\u5bf9\u8c61"): target,
+        cn("\u5224\u65ad"): status,
+        cn("\u8bf4\u660e"): note,
+    }
+
+
+
+
+def normalized_grade_ratio_rules(grade_ratios: dict[str, tuple[float, float]] | None) -> dict[str, tuple[float, float]]:
+    rules = dict(grade_ratios or {})
+    if not rules:
+        rules = {"HRB400E": (65.0, 100.0)}
+    return rules
+
+
+def diagnose_relaxed_conflicts(
+    resource: ResourceRow,
+    calendar: dict[tuple[str, str], float],
+    foreign_days: dict[tuple[str, str], float],
+    efficiency: dict[tuple[str, str, int], float],
+    demands: list[DemandRow],
+    ratios: list[RatioRow],
+    grade_ratios: dict[str, tuple[float, float]] | None = None,
+) -> list[dict[str, Any]]:
+    period = resource.period
+    period_lines = sorted({line for p, line in calendar if p == period})
+    if not period_lines:
+        return []
+
+    four_units = tons_to_units(resource.four_hundred, f"{period} 400MPa") if resource.four_hundred else 0
+    demand_for_period = [d for d in demands if d.period == period]
+    problem = pulp.LpProblem(f"diagnose_{period}", pulp.LpMinimize)
+    variables: dict[tuple[str, int, str], pulp.LpVariable] = {}
+    slacks: list[tuple[str, str, str, str, pulp.LpVariable, float]] = []
+
+    def add_var(grade: str, spec: int, line: str) -> pulp.LpVariable:
+        key = (grade, spec, line)
+        if key not in variables:
+            name = f"d_{period}_{grade}_{spec}_{line}".replace("/", "_")
+            variables[key] = pulp.LpVariable(name, lowBound=0, cat=pulp.LpContinuous)
+        return variables[key]
+
+    def add_slack(kind: str, target: str, status: str, note_template: str, weight: float) -> pulp.LpVariable:
+        slack = pulp.LpVariable(f"s_{len(slacks)}", lowBound=0, cat=pulp.LpContinuous)
+        slacks.append((kind, target, status, note_template, slack, weight))
+        return slack
+
+    for demand in demand_for_period:
+        lines = eligible_lines(demand.grade, demand.spec, efficiency)
+        if not lines:
+            continue
+        demand_vars = [add_var(demand.grade, demand.spec, line) for line in lines]
+        short = add_slack(cn("\u4fdd\u4f9b\u9700\u6c42\u7f3a\u53e3"), f"{demand.grade}-{demand.spec}", cn("\u5173\u952e\u539f\u56e0"), cn("\u8be5\u4fdd\u4f9b\u9700\u6c42\u81f3\u5c11\u8fd8\u7f3a {value} \u5428\u624d\u80fd\u6392\u6ee1\u3002"), 2000)
+        over = add_slack(cn("\u4fdd\u4f9b\u9700\u6c42\u8d85\u6392"), f"{demand.grade}-{demand.spec}", cn("\u8f85\u52a9\u5224\u65ad"), cn("\u8be5\u4fdd\u4f9b\u9700\u6c42\u9700\u8981\u5141\u8bb8\u8d85\u6392 {value} \u5428\u624d\u53ef\u5e73\u8861\u3002"), 2000)
+        problem += pulp.lpSum(demand_vars) + short / UNIT_TONS - over / UNIT_TONS == tons_to_units(demand.tons, f"{period} {demand.grade} {demand.spec}")
+
+    ratio_specs = sorted({r.spec for r in ratios})
+    for grade in sorted(FOUR_HUNDRED_GRADES):
+        for spec in ratio_specs:
+            for line in eligible_lines(grade, spec, efficiency):
+                add_var(grade, spec, line)
+
+    four_vars = [var for (grade, _spec, _line), var in variables.items() if grade in FOUR_HUNDRED_GRADES]
+    four_short = add_slack(cn("400\u5146\u5e15\u8d44\u6e90"), period, cn("\u5173\u952e\u539f\u56e0"), cn("400\u5146\u5e15\u8d44\u6e90\u81f3\u5c11\u6709 {value} \u5428\u65e0\u6cd5\u6392\u5165\u73b0\u6709\u4ea7\u7ebf/\u6bd4\u4f8b\u7ec4\u5408\u3002"), 1500)
+    four_over = add_slack(cn("400\u5146\u5e15\u8d44\u6e90"), period, cn("\u5173\u952e\u539f\u56e0"), cn("400\u5146\u5e15\u8d44\u6e90\u9700\u8981\u5141\u8bb8\u8d85\u6392 {value} \u5428\u624d\u53ef\u6ee1\u8db3\u5176\u4ed6\u7ea6\u675f\u3002"), 1500)
+    problem += pulp.lpSum(four_vars) + four_short / UNIT_TONS - four_over / UNIT_TONS == four_units
+
+    for ratio in ratios:
+        lower = ratio_percent_to_fraction(ratio.lower)
+        upper = ratio_percent_to_fraction(ratio.upper)
+        if not 0 <= lower <= upper <= 1:
+            continue
+        spec_vars = [var for (grade, spec, _line), var in variables.items() if grade in FOUR_HUNDRED_GRADES and spec == ratio.spec]
+        min_units = math.ceil(lower * four_units - 1e-9)
+        max_units = math.floor(upper * four_units + 1e-9)
+        lower_slack = add_slack(cn("400\u89c4\u683c\u6bd4\u4f8b\u4e0b\u9650"), str(ratio.spec), cn("\u5173\u952e\u539f\u56e0"), cn("\u8be5\u89c4\u683c\u4e0b\u9650\u8981\u6c42\u504f\u9ad8\uff0c\u81f3\u5c11\u7f3a {value} \u5428\u624d\u80fd\u8fbe\u5230\u4e0b\u9650\u3002"), 1000)
+        upper_slack = add_slack(cn("400\u89c4\u683c\u6bd4\u4f8b\u4e0a\u9650"), str(ratio.spec), cn("\u5173\u952e\u539f\u56e0"), cn("\u8be5\u89c4\u683c\u4e0a\u9650\u504f\u7d27\uff0c\u81f3\u5c11\u9700\u8981\u653e\u5bbd {value} \u5428\u624d\u6392\u5f97\u4e0b\u3002"), 1000)
+        problem += pulp.lpSum(spec_vars) + lower_slack / UNIT_TONS >= min_units
+        problem += pulp.lpSum(spec_vars) - upper_slack / UNIT_TONS <= max_units
+
+    for grade, (raw_lower, raw_upper) in normalized_grade_ratio_rules(grade_ratios).items():
+        grade = norm_grade(grade)
+        if grade not in FOUR_HUNDRED_GRADES:
+            continue
+        lower = ratio_percent_to_fraction(float(raw_lower))
+        upper = ratio_percent_to_fraction(float(raw_upper))
+        if not 0 <= lower <= upper <= 1:
+            continue
+        for spec in ratio_specs:
+            same_spec_vars = [var for (var_grade, var_spec, _line), var in variables.items() if var_grade in FOUR_HUNDRED_GRADES and var_spec == spec]
+            grade_spec_vars = [var for (var_grade, var_spec, _line), var in variables.items() if var_grade == grade and var_spec == spec]
+            if not same_spec_vars:
+                continue
+            lower_slack = add_slack(cn("400\u724c\u53f7\u6bd4\u4f8b\u4e0b\u9650"), f"{spec}-{grade}", cn("\u5173\u952e\u539f\u56e0"), f"{spec}?? {grade} " + cn("\u4e0b\u9650\u8981\u6c42\u504f\u9ad8\uff0c\u81f3\u5c11\u7f3a {value} \u5428\u624d\u80fd\u8fbe\u5230\u8be5\u89c4\u683c\u5185\u7684\u724c\u53f7\u6bd4\u4f8b\u4e0b\u9650\u3002"), 1000)
+            upper_slack = add_slack(cn("400\u724c\u53f7\u6bd4\u4f8b\u4e0a\u9650"), f"{spec}-{grade}", cn("\u5173\u952e\u539f\u56e0"), f"{spec}?? {grade} " + cn("\u4e0a\u9650\u504f\u7d27\uff0c\u81f3\u5c11\u9700\u8981\u653e\u5bbd {value} \u5428\u624d\u6392\u5f97\u4e0b\u3002"), 1000)
+            problem += pulp.lpSum(grade_spec_vars) + lower_slack / UNIT_TONS >= lower * pulp.lpSum(same_spec_vars)
+            problem += pulp.lpSum(grade_spec_vars) - upper_slack / UNIT_TONS <= upper * pulp.lpSum(same_spec_vars)
+
+    for line in period_lines:
+        capacity_days = calendar[(period, line)]
+        fixed_days = foreign_days.get((period, line), 0.0)
+        line_terms = []
+        for (grade, spec, var_line), var in variables.items():
+            if var_line == line:
+                daily = efficiency.get((line, grade, spec))
+                if daily:
+                    line_terms.append(var * UNIT_TONS / daily)
+        line_slack = add_slack(cn("\u4ea7\u7ebf\u5929\u6570\u4e0d\u8db3"), line, cn("\u5173\u952e\u539f\u56e0"), cn("\u8be5\u4ea7\u7ebf\u81f3\u5c11\u8fd8\u5dee {value} \u5929\uff0c\u8bf4\u660e\u8d44\u6e90/\u4fdd\u4f9b/\u89c4\u683c\u7ec4\u5408\u8d85\u51fa\u8be5\u4ea7\u7ebf\u53ef\u7528\u80fd\u529b\u3002"), 3000)
+        problem += pulp.lpSum(line_terms) <= capacity_days - fixed_days + line_slack
+
+    problem += pulp.lpSum(slack * weight for *_meta, slack, weight in slacks)
+    status = problem.solve(pulp.PULP_CBC_CMD(msg=False))
+    if pulp.LpStatus[status] != "Optimal":
+        return [diag_item(cn("\u5173\u952e\u51b2\u7a81\u5b9a\u4f4d"), period, cn("\u65e0\u6cd5\u5206\u6790"), cn("\u8bca\u65ad\u6a21\u578b\u4e5f\u65e0\u6cd5\u6c42\u89e3\uff0c\u8bf7\u4f18\u5148\u68c0\u67e5\u662f\u5426\u7f3a\u5c11\u65e5\u4ea7\u91cf\u3001\u751f\u4ea7\u65e5\u5386\u6216\u9700\u6c42\u8868\u3002"))]
+
+    results: list[dict[str, Any]] = []
+    for kind, target, status_text, note_template, slack, _weight in slacks:
+        raw = slack.value() or 0
+        if raw <= 1e-6:
+            continue
+        if kind == cn("\u4ea7\u7ebf\u5929\u6570\u4e0d\u8db3"):
+            note = note_template.format(value=round(raw, 2))
+        else:
+            note = note_template.format(value=int(math.ceil(raw - 1e-9)))
+        results.append(diag_item(kind, target, status_text, note))
+    return results
+
+
+def diagnose_period_input(
+    resource: ResourceRow,
+    calendar: dict[tuple[str, str], float],
+    foreign_days: dict[tuple[str, str], float],
+    efficiency: dict[tuple[str, str, int], float],
+    demands: list[DemandRow],
+    ratios: list[RatioRow],
+    grade_ratios: dict[str, tuple[float, float]] | None = None,
+) -> list[dict[str, Any]]:
+    period = resource.period
+    diagnostics: list[dict[str, Any]] = []
+    period_lines = sorted({line for p, line in calendar if p == period})
+    available_by_line: dict[str, float] = {}
+
+    if not period_lines:
+        diagnostics.append(diag_item(cn("\u751f\u4ea7\u65e5\u5386"), period, cn("\u4e0d\u53ef\u884c"), cn("\u8be5\u65ec\u5ea6\u6ca1\u6709\u586b\u5199\u4efb\u4f55\u4ea7\u7ebf\u751f\u4ea7\u5929\u6570\u3002")))
+        return diagnostics
+
+    for line in period_lines:
+        capacity_days = calendar[(period, line)]
+        occupied = foreign_days.get((period, line), 0.0)
+        available = capacity_days - occupied
+        available_by_line[line] = max(0.0, available)
+        status = cn("\u53ef\u7528") if available >= -1e-8 else cn("\u8d85\u9650")
+        diagnostics.append(diag_item(
+            cn("\u4ea7\u7ebf\u5269\u4f59\u5929\u6570"),
+            line,
+            status,
+            cn("\u751f\u4ea7\u5929\u6570") + f" {capacity_days:.2f} " + cn("\u5929\uff0c\u5916\u8d38\u5360\u7528") + f" {occupied:.2f} " + cn("\u5929\uff0c\u5185\u8d38\u6700\u591a\u5269\u4f59") + f" {available:.2f} " + cn("\u5929\u3002"),
+        ))
+
+    demand_for_period = [d for d in demands if d.period == period]
+    for demand in demand_for_period:
+        lines = eligible_lines(demand.grade, demand.spec, efficiency)
+        if not lines:
+            diagnostics.append(diag_item(cn("\u4fdd\u4f9b\u9700\u6c42"), f"{demand.grade}-{demand.spec}", cn("\u4e0d\u53ef\u884c"), cn("\u4ea7\u54c1\u751f\u4ea7\u6548\u7387\u8868\u4e2d\u6ca1\u6709\u4efb\u4f55\u53ef\u6392\u4ea7\u7ebf\uff0c\u65e0\u6cd5\u6392\u5165\u751f\u4ea7\u3002")))
+            continue
+        best_daily = max(efficiency[(line, demand.grade, demand.spec)] for line in lines)
+        best_days = demand.tons / best_daily if best_daily else float("inf")
+        eligible_available = sum(available_by_line.get(line, 0.0) for line in lines)
+        status = cn("\u9700\u5173\u6ce8") if best_days > eligible_available + 1e-8 else cn("\u53ef\u68c0\u67e5")
+        diagnostics.append(diag_item(
+            cn("\u4fdd\u4f9b\u9700\u6c42"),
+            f"{demand.grade}-{demand.spec}",
+            status,
+            cn("\u9700\u6c42") + f" {demand.tons} " + cn("\u5428\uff0c\u53ef\u6392\u4ea7\u7ebf\uff1a") + f"{', '.join(lines)}" + cn("\uff1b\u6309\u6700\u5feb\u65e5\u4ea7\u91cf\u81f3\u5c11\u7ea6") + f" {best_days:.2f} " + cn("\u5929\uff0c\u76f8\u5173\u4ea7\u7ebf\u5269\u4f59\u5929\u6570\u5408\u8ba1") + f" {eligible_available:.2f} " + cn("\u5929\u3002"),
+        ))
+
+    four_units = tons_to_units(resource.four_hundred, f"{period} 400MPa") if resource.four_hundred else 0
+    min_sum = 0
+    max_sum = 0
+    for ratio in ratios:
+        lower = ratio_percent_to_fraction(ratio.lower)
+        upper = ratio_percent_to_fraction(ratio.upper)
+        min_units = math.ceil(lower * four_units - 1e-9)
+        max_units = math.floor(upper * four_units + 1e-9)
+        min_sum += min_units
+        max_sum += max_units
+        spec_lines = sorted({line for grade in FOUR_HUNDRED_GRADES for line in eligible_lines(grade, ratio.spec, efficiency)})
+        if lower < -1e-9 or upper > 1 + 1e-9 or lower > upper + 1e-9:
+            status = cn("\u4e0d\u53ef\u884c")
+            reason = cn("\u6bd4\u4f8b\u4e0a\u4e0b\u9650\u4e0d\u5408\u6cd5\uff0c\u8bf7\u6309\u767e\u5206\u6570\u586b\u5199\uff0c\u4f8b\u5982 10 \u8868\u793a 10%\u3002")
+        elif not spec_lines and min_units > 0:
+            status = cn("\u4e0d\u53ef\u884c")
+            reason = cn("\u8be5\u89c4\u683c\u6709\u6bd4\u4f8b\u4e0b\u9650\uff0c\u4f46\u4ea7\u54c1\u751f\u4ea7\u6548\u7387\u8868\u4e2d\u6ca1\u6709 HRB400/HRB400E \u7684\u53ef\u6392\u4ea7\u7ebf\u3002")
+        else:
+            status = cn("\u53ef\u68c0\u67e5")
+            reason = cn("\u6309 400\u5146\u5e15\u8d44\u6e90") + f" {resource.four_hundred} " + cn("\u5428\u8ba1\u7b97\uff0c\u6700\u4f4e") + f" {min_units * UNIT_TONS} " + cn("\u5428\uff0c\u6700\u9ad8") + f" {max_units * UNIT_TONS} " + cn("\u5428\uff1b\u53ef\u6392\u4ea7\u7ebf\uff1a") + (', '.join(spec_lines) if spec_lines else cn("\u65e0")) + cn("\u3002")
+        diagnostics.append(diag_item(cn("400\u89c4\u683c\u6bd4\u4f8b"), str(ratio.spec), status, cn("\u4e0b\u9650") + f" {format_pct(lower)}" + cn("\uff0c\u4e0a\u9650") + f" {format_pct(upper)}" + cn("\u3002") + reason))
+
+    if ratios and min_sum > four_units:
+        diagnostics.append(diag_item(cn("400\u89c4\u683c\u6bd4\u4f8b\u6c47\u603b"), period, cn("\u4e0d\u53ef\u884c"), cn("\u6240\u6709\u89c4\u683c\u6700\u4f4e\u5428\u4f4d\u5408\u8ba1") + f" {min_sum * UNIT_TONS} " + cn("\u5428\uff0c\u8d85\u8fc7 400\u5146\u5e15\u8d44\u6e90") + f" {resource.four_hundred} " + cn("\u5428\u3002")))
+    if ratios and max_sum < four_units:
+        diagnostics.append(diag_item(cn("400\u89c4\u683c\u6bd4\u4f8b\u6c47\u603b"), period, cn("\u4e0d\u53ef\u884c"), cn("\u6240\u6709\u89c4\u683c\u6700\u9ad8\u5428\u4f4d\u5408\u8ba1") + f" {max_sum * UNIT_TONS} " + cn("\u5428\uff0c\u5c0f\u4e8e 400\u5146\u5e15\u8d44\u6e90") + f" {resource.four_hundred} " + cn("\u5428\uff0c\u8d44\u6e90\u65e0\u6cd5\u6392\u6ee1\u3002")))
+
+    e_lines = sorted({line for (line, grade, _spec) in efficiency if grade == "HRB400E"})
+    if resource.four_hundred > 0 and not e_lines:
+        diagnostics.append(diag_item(cn("HRB400E\u6297\u9707\u5360\u6bd4"), period, cn("\u4e0d\u53ef\u884c"), cn("400\u5146\u5e15\u8981\u6c42 HRB400E \u5360\u6bd4\u81f3\u5c11 65%\uff0c\u4f46\u4ea7\u54c1\u751f\u4ea7\u6548\u7387\u8868\u6ca1\u6709\u4efb\u4f55 HRB400E \u53ef\u6392\u4ea7\u8bb0\u5f55\u3002")))
+    elif resource.four_hundred > 0:
+        diagnostics.append(diag_item(cn("HRB400E\u6297\u9707\u5360\u6bd4"), period, cn("\u53ef\u68c0\u67e5"), cn("\u81f3\u5c11\u9700\u8981 HRB400E") + f" {math.ceil(0.65 * four_units - 1e-9) * UNIT_TONS} " + cn("\u5428\uff1b\u53ef\u6392 HRB400E \u7684\u4ea7\u7ebf\uff1a") + f"{', '.join(e_lines)}" + cn("\u3002")))
+
+    if not any(row.get(cn("\u5224\u65ad")) == cn("\u4e0d\u53ef\u884c") for row in diagnostics):
+        diagnostics.append(diag_item(cn("\u7efc\u5408\u5224\u65ad"), period, cn("\u9700\u7efc\u5408\u8c03\u6574"), cn("\u5355\u9879\u68c0\u67e5\u672a\u53d1\u73b0\u7edd\u5bf9\u9519\u8bef\uff0c\u901a\u5e38\u662f\u591a\u4e2a\u7ea6\u675f\u53e0\u52a0\u5bfc\u81f4\uff1a\u4fdd\u4f9b\u5360\u7528\u4ea7\u7ebf\u540e\uff0c400\u5146\u5e15\u6bd4\u4f8b\u3001HRB400E 65%\u5360\u6bd4\u4e0e\u5404\u4ea7\u7ebf\u65e5\u4ea7\u91cf\u7ec4\u5408\u65e0\u6cd5\u540c\u65f6\u6ee1\u8db3\u3002\u53ef\u4f18\u5148\u653e\u5bbd\u89c4\u683c\u6bd4\u4f8b\uff0c\u6216\u589e\u52a0\u76f8\u5173\u89c4\u683c/\u724c\u53f7\u7684\u53ef\u6392\u4ea7\u7ebf\u548c\u751f\u4ea7\u5929\u6570\u3002")))
+    conflict_rows = diagnose_relaxed_conflicts(resource, calendar, foreign_days, efficiency, demands, ratios, grade_ratios)
+    if conflict_rows:
+        diagnostics = conflict_rows + diagnostics
+    return diagnostics
+
 def solve_period(
     resource: ResourceRow,
     calendar: dict[tuple[str, str], float],
@@ -392,6 +630,7 @@ def solve_period(
     cashflow: dict[tuple[str, int], float],
     demands: list[DemandRow],
     ratios: list[RatioRow],
+    grade_ratios: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     period = resource.period
     period_lines = sorted({line for p, line in calendar if p == period})
@@ -445,18 +684,34 @@ def solve_period(
     model += pulp.lpSum(four_vars) == four_units
 
     for ratio in ratios:
-        if not 0 <= ratio.lower <= ratio.upper <= 1:
-            raise ModelInputError(f"规格 {ratio.spec} 的比例上下限不合法")
+        lower = ratio_percent_to_fraction(ratio.lower)
+        upper = ratio_percent_to_fraction(ratio.upper)
+        if not 0 <= lower <= upper <= 1:
+            raise ModelInputError(f"\u89c4\u683c {ratio.spec} \u7684\u6bd4\u4f8b\u4e0a\u4e0b\u9650\u4e0d\u5408\u6cd5\uff1a\u8bf7\u6309\u767e\u5206\u6570\u586b\u5199\uff0c\u4f8b\u5982 10 \u8868\u793a 10%")
         spec_vars = [var for (grade, spec, _line), var in variables.items() if grade in FOUR_HUNDRED_GRADES and spec == ratio.spec]
-        min_units = math.ceil(ratio.lower * four_units - 1e-9)
-        max_units = math.floor(ratio.upper * four_units + 1e-9)
+        min_units = math.ceil(lower * four_units - 1e-9)
+        max_units = math.floor(upper * four_units + 1e-9)
         if not spec_vars and min_units > 0:
-            raise ModelInputError(f"400兆帕规格 {ratio.spec} 有比例下限，但没有可排产线")
+            raise ModelInputError(f"400???? {ratio.spec} ?????????????")
         model += pulp.lpSum(spec_vars) >= min_units
         model += pulp.lpSum(spec_vars) <= max_units
 
-    e_vars = [var for (grade, _spec, _line), var in variables.items() if grade == "HRB400E"]
-    model += pulp.lpSum(e_vars) >= math.ceil(0.65 * four_units - 1e-9)
+    grade_ratio_rules = normalized_grade_ratio_rules(grade_ratios)
+    for grade, (raw_lower, raw_upper) in grade_ratio_rules.items():
+        grade = norm_grade(grade)
+        if grade not in FOUR_HUNDRED_GRADES:
+            raise ModelInputError(f"400????????? HRB400 ? HRB400E?{grade}")
+        lower = ratio_percent_to_fraction(float(raw_lower))
+        upper = ratio_percent_to_fraction(float(raw_upper))
+        if not 0 <= lower <= upper <= 1:
+            raise ModelInputError(f"{grade} ????????????????????? 65 ?? 65%")
+        for spec in ratio_specs:
+            same_spec_vars = [var for (var_grade, var_spec, _line), var in variables.items() if var_grade in FOUR_HUNDRED_GRADES and var_spec == spec]
+            grade_spec_vars = [var for (var_grade, var_spec, _line), var in variables.items() if var_grade == grade and var_spec == spec]
+            if not same_spec_vars:
+                continue
+            model += pulp.lpSum(grade_spec_vars) >= lower * pulp.lpSum(same_spec_vars)
+            model += pulp.lpSum(grade_spec_vars) <= upper * pulp.lpSum(same_spec_vars)
 
     for line in period_lines:
         capacity_days = calendar[(period, line)]
@@ -471,15 +726,40 @@ def solve_period(
             line_terms.append(var * UNIT_TONS / daily)
         model += pulp.lpSum(line_terms) <= capacity_days - fixed_days
 
-    model += pulp.lpSum(
+    spec_line_flags: dict[tuple[int, str], pulp.LpVariable] = {}
+
+    cash_objective = pulp.lpSum(
         var * UNIT_TONS * cashflow.get((grade, spec), 0.0)
         for (grade, spec, _line), var in variables.items()
         if grade in FOUR_HUNDRED_GRADES
     )
+    model += cash_objective
 
     status = model.solve(pulp.PULP_CBC_CMD(msg=False))
+    if pulp.LpStatus[status] == "Optimal":
+        optimal_cash = pulp.value(cash_objective) or 0.0
+        model += cash_objective >= optimal_cash - 1e-6
+        total_units = max(1, tons_to_units(total_domestic, f"{period} ??????"))
+        for spec in sorted({spec for (_grade, spec, _line) in variables}):
+            for line in period_lines:
+                spec_line_vars = [var for (_grade, var_spec, var_line), var in variables.items() if var_spec == spec and var_line == line]
+                if not spec_line_vars:
+                    continue
+                flag = pulp.LpVariable(f"use_{period}_{spec}_{line}".replace("/", "_"), lowBound=0, upBound=1, cat=pulp.LpBinary)
+                spec_line_flags[(spec, line)] = flag
+                model += pulp.lpSum(spec_line_vars) <= total_units * flag
+        if spec_line_flags:
+            model.setObjective(pulp.lpSum(spec_line_flags.values()))
+            status = model.solve(pulp.PULP_CBC_CMD(msg=False))
     if pulp.LpStatus[status] != "Optimal":
-        raise ModelInputError(f"{period} 无可行排产方案：{pulp.LpStatus[status]}。请检查产线天数、需求量、规格比例或日产量。")
+        diagnostics = diagnose_period_input(resource, calendar, foreign_days, efficiency, demands, ratios, grade_ratios)
+        details = "\n".join(
+            f"- {item[cn('\u5206\u6790\u9879')]}?{item[cn('\u5bf9\u8c61')]}?{item[cn('\u5224\u65ad')]}?{item[cn('\u8bf4\u660e')]}"
+            for item in diagnostics
+        )
+        exc = ModelInputError(f"{period} \u65e0\u53ef\u884c\u6392\u4ea7\u65b9\u6848\uff1a{pulp.LpStatus[status]}\u3002\u8bf7\u67e5\u770b\u4e0b\u65b9\u4e0d\u53ef\u884c\u539f\u56e0\u5206\u6790\u3002\n{details}")
+        exc.diagnostics = diagnostics
+        raise exc
 
     plan = []
     for (grade, spec, line), var in sorted(variables.items(), key=lambda item: (item[0][0], item[0][1], item[0][2])):
@@ -512,10 +792,22 @@ def solve_period(
             {"校验项": "HRB500E需求", "旬度": period, "产线": "", "结果": "通过", "数值": by_grade["HRB500E"], "说明": f"保供量{resource.hrb500e}吨"},
             {"校验项": "600兆帕需求", "旬度": period, "产线": "", "结果": "通过", "数值": by_grade["T63E/E/G"] + by_grade["T63/E/G"], "说明": f"保供量{resource.six_hundred}吨"},
             {"校验项": "400兆帕资源", "旬度": period, "产线": "", "结果": "通过", "数值": by_grade["HRB400"] + by_grade["HRB400E"], "说明": f"资源量{resource.four_hundred}吨"},
-            {"校验项": "HRB400E抗震占比", "旬度": period, "产线": "", "结果": "通过", "数值": round(by_grade["HRB400E"] / resource.four_hundred, 4) if resource.four_hundred else 0, "说明": "下限0.65"},
             {"校验项": "400兆帕总现金流", "旬度": period, "产线": "", "结果": "通过", "数值": round(total_cash, 4), "说明": ""},
         ]
     )
+    display_grade_rules = normalized_grade_ratio_rules(grade_ratios)
+    by_spec_grade = defaultdict(int)
+    for row in plan:
+        if row[cn("\u724c\u53f7")] in FOUR_HUNDRED_GRADES:
+            by_spec_grade[(row[cn("\u89c4\u683c")], row[cn("\u724c\u53f7")])] += row[cn("\u5428\u4f4d")]
+    for ratio in ratios:
+        spec_total = by_spec[ratio.spec]
+        for grade, (raw_lower, raw_upper) in display_grade_rules.items():
+            grade = norm_grade(grade)
+            if grade in FOUR_HUNDRED_GRADES:
+                value = by_spec_grade[(ratio.spec, grade)] / spec_total if spec_total else 0
+                checks.append({cn("\u6821\u9a8c\u9879"): cn("400\u5146\u5e15\u89c4\u683c") + f"{ratio.spec}-{grade}" + cn("\u724c\u53f7\u6bd4\u4f8b"), cn("\u65ec\u5ea6"): period, cn("\u4ea7\u7ebf"): "", cn("\u7ed3\u679c"): cn("\u901a\u8fc7"), cn("\u6570\u503c"): round(value, 4), cn("\u8bf4\u660e"): cn("\u8be5\u89c4\u683c\u5185\u8303\u56f4") + f"{format_pct(ratio_percent_to_fraction(float(raw_lower)))}-{format_pct(ratio_percent_to_fraction(float(raw_upper)))}"})
+
     for ratio in ratios:
         value = by_spec[ratio.spec] / resource.four_hundred if resource.four_hundred else 0
         checks.append({"校验项": f"400兆帕规格{ratio.spec}比例", "旬度": period, "产线": "", "结果": "通过", "数值": round(value, 4), "说明": f"范围{ratio.lower}-{ratio.upper}"})
@@ -614,3 +906,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
