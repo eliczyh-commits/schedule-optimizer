@@ -3,129 +3,179 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>旬度内贸排产优化</title>
+    <title>&#26092;&#24230;&#20869;&#36152;&#25490;&#20135;&#20248;&#21270;</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="topbar">
       <div>
-        <h1>旬度内贸排产优化</h1>
-        <p id="status">正在打开空模板</p>
+        <h1>&#26092;&#24230;&#20869;&#36152;&#25490;&#20135;&#20248;&#21270;</h1>
+        <p id="status">&#27491;&#22312;&#25171;&#24320;&#31354;&#27169;&#26495;</p>
       </div>
       <div class="actions">
-        <button id="loadDefaults" type="button">重置空模板</button>
-        <button id="solve" type="button" class="primary">生成方案</button>
+        <button id="loadDefaults" type="button">&#37325;&#32622;&#31354;&#27169;&#26495;</button>
+        <button id="solve" type="button" class="primary">&#29983;&#25104;&#26041;&#26696;</button>
       </div>
     </header>
 
+    <section id="dashboardShell" class="dashboard-shell" aria-label="&#25490;&#20135;&#27010;&#35272;">
+      <div id="dashboard" class="dashboard"></div>
+      <button id="toggleDashboard" class="dashboard-toggle" type="button" aria-expanded="true">
+        <span class="toggle-icon">&#9650;</span>
+        <span class="toggle-text">&#25910;&#36215;&#24635;&#25968;</span>
+      </button>
+    </section>
+
     <main>
-      <nav class="tabs" aria-label="输入区域">
-        <button class="active" data-tab="basic">资源与日历</button>
-        <button data-tab="foreign">外贸与效率</button>
-        <button data-tab="rules">保供与约束</button>
-        <button data-tab="result">结果</button>
+      <nav class="tabs" aria-label="&#25490;&#20135;&#27169;&#22359;">
+        <button class="active" data-tab="conditions">&#25490;&#20135;&#26465;&#20214;</button>
+        <button data-tab="initialPlan">&#21021;&#22987;&#25490;&#20135;&#26041;&#26696;</button>
+        <button data-tab="adjustedPlan">&#35843;&#25972;&#25490;&#20135;&#26041;&#26696;</button>
       </nav>
 
-      <section id="basic" class="tab-panel active">
-        <div class="grid two">
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">旬度资源</button>
-              <button data-add="resources" type="button">新增</button>
+      <section id="conditions" class="tab-panel active">
+        <div class="module-block">
+          <h2>&#36164;&#28304;&#19982;&#26085;&#21382;</h2>
+          <div class="grid">
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">&#26092;&#24230;&#36164;&#28304;</button>
+                <div class="panel-actions"><button data-clear="resources" type="button">&#28165;&#38500;</button><button data-add="resources" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="resources"></div></div>
             </div>
-            <div class="panel-body"><div id="resources"></div></div>
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">&#29983;&#20135;&#26085;&#21382;</button>
+                <div class="panel-actions"><button data-clear="calendar" type="button">&#28165;&#38500;</button><button data-add="calendar" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="calendar"></div></div>
+            </div>
           </div>
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">生产日历</button>
-              <button data-add="calendar" type="button">新增</button>
+        </div>
+
+        <div class="module-block">
+          <h2>&#22806;&#36152;&#19982;&#25928;&#29575;</h2>
+          <div class="grid">
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">&#22806;&#36152;&#25490;&#20135;&#26126;&#32454;</button>
+                <div class="panel-actions"><button data-import="foreign" type="button">&#23548;&#20837;Excel</button><button data-clear="foreign" type="button">&#28165;&#38500;</button><button data-add="foreign" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="foreignTable"></div></div>
             </div>
-            <div class="panel-body"><div id="calendar"></div></div>
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">&#20135;&#21697;&#29983;&#20135;&#25928;&#29575;</button>
+                <div class="panel-actions"><button data-import="efficiency" type="button">&#23548;&#20837;Excel</button><button data-clear="efficiency" type="button">&#28165;&#38500;</button><button data-add="efficiency" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="efficiency"></div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">&#29616;&#37329;&#27969;</button>
+                <div class="panel-actions"><button data-import="cashflow" type="button">&#23548;&#20837;Excel</button><button data-clear="cashflow" type="button">&#28165;&#38500;</button><button data-add="cashflow" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="cashflow"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="module-block">
+          <h2>&#20445;&#20379;&#19982;&#32422;&#26463;</h2>
+          <div class="grid">
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">HRB500E&#21450;600&#20806;&#24085;&#38656;&#27714;</button>
+                <div class="panel-actions"><button data-import="demands" type="button">&#23548;&#20837;Excel</button><button data-clear="demands" type="button">&#28165;&#38500;</button><button data-add="demands" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="demands"></div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">400&#20806;&#24085;&#29260;&#21495;&#27604;&#20363;&#65288;&#25353;&#35268;&#26684;&#29983;&#25928;&#65289;</button>
+                <div class="panel-actions"><button data-clear="grade_ratios" type="button">&#28165;&#38500;</button><button data-add="grade_ratios" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="gradeRatios"></div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">400&#20806;&#24085;&#35268;&#26684;&#27604;&#20363;</button>
+                <div class="panel-actions"><button data-import="ratios" type="button">&#23548;&#20837;Excel</button><button data-clear="ratios" type="button">&#28165;&#38500;</button><button data-add="ratios" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="ratios"></div></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <button class="panel-toggle" data-toggle-panel type="button">400&#20806;&#24085;&#23458;&#25143;&#38656;&#27714;&#39044;&#25253;</button>
+                <div class="panel-actions"><button data-import="forecast" type="button">&#23548;&#20837;Excel</button><button data-clear="forecast" type="button">&#28165;&#38500;</button><button data-add="forecast" type="button">&#26032;&#22686;</button></div>
+              </div>
+              <div class="panel-body"><div id="forecast"></div></div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="foreign" class="tab-panel">
-        <div class="grid">
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">外贸排产明细</button>
-              <div class="panel-actions">
-                <button data-import="foreign" type="button">导入Excel</button>
-                <button data-add="foreign" type="button">新增</button>
-              </div>
-            </div>
-            <div class="panel-body"><div id="foreignTable"></div></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">产品生产效率</button>
-              <div class="panel-actions">
-                <button data-import="efficiency" type="button">导入Excel</button>
-                <button data-add="efficiency" type="button">新增</button>
-              </div>
-            </div>
-            <div class="panel-body"><div id="efficiency"></div></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">现金流</button>
-              <div class="panel-actions">
-                <button data-import="cashflow" type="button">导入Excel</button>
-                <button data-add="cashflow" type="button">新增</button>
-              </div>
-            </div>
-            <div class="panel-body"><div id="cashflow"></div></div>
-          </div>
-        </div>
-      </section>
-
-      <section id="rules" class="tab-panel">
-        <div class="grid">
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">HRB500E及600兆帕需求</button>
-              <button data-add="demands" type="button">新增</button>
-            </div>
-            <div class="panel-body"><div id="demands"></div></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">400兆帕规格比例</button>
-              <button data-add="ratios" type="button">新增</button>
-            </div>
-            <div class="panel-body"><div id="ratios"></div></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <button class="panel-toggle" data-toggle-panel type="button">400兆帕客户需求预报</button>
-              <button data-add="forecast" type="button">新增</button>
-            </div>
-            <div class="panel-body"><div id="forecast"></div></div>
-          </div>
-        </div>
-      </section>
-
-      <section id="result" class="tab-panel">
+      <section id="initialPlan" class="tab-panel">
         <div id="errorBox" class="error hidden"></div>
         <div class="grid">
           <div class="panel">
-            <h2>内贸排产方案</h2>
-            <div id="plan"></div>
+            <div class="panel-head">
+              <button class="panel-toggle" data-toggle-panel type="button">&#20869;&#36152;&#25490;&#20135;&#21021;&#22987;&#26041;&#26696;</button>
+              <div class="panel-actions"><button id="copyAdjustment" type="button">&#22797;&#21046;&#21040;&#35843;&#25972;&#26041;&#26696;</button><button id="exportPlan" type="button">&#23548;&#20986;Excel</button></div>
+            </div>
+            <div class="panel-body"><div id="plan"></div></div>
+          </div>
+          <div class="panel" id="diagnosticsPanel">
+            <div class="panel-head"><button class="panel-toggle" data-toggle-panel type="button">&#19981;&#21487;&#34892;&#21407;&#22240;&#20998;&#26512;</button></div>
+            <div class="panel-body"><div id="diagnostics"></div></div>
           </div>
           <div class="panel">
-            <h2>方案校验</h2>
-            <div id="checks"></div>
+            <div class="panel-head"><button class="panel-toggle" data-toggle-panel type="button">&#26041;&#26696;&#26657;&#39564;</button></div>
+            <div class="panel-body"><div id="checks"></div></div>
           </div>
           <div class="panel">
-            <h2>400兆帕需求建议</h2>
-            <div id="suggestions"></div>
+            <div class="panel-head">
+              <button class="panel-toggle" data-toggle-panel type="button">&#29616;&#37329;&#27969;&#27719;&#24635;</button>
+              <div class="panel-actions"><button id="exportCashflow" type="button">&#23548;&#20986;Excel</button></div>
+            </div>
+            <div class="panel-body"><div id="cashflowSummary"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><button class="panel-toggle" data-toggle-panel type="button">400&#20806;&#24085;&#38656;&#27714;&#24314;&#35758;</button></div>
+            <div class="panel-body"><div id="suggestions"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="adjustedPlan" class="tab-panel">
+        <div class="adjustment-workbench">
+          <div class="panel adjustment-main">
+            <div class="panel-head">
+              <button class="panel-toggle" data-toggle-panel type="button">&#35843;&#25972;&#25490;&#20135;&#26041;&#26696;</button>
+              <div class="panel-actions"><button id="exportAdjustment" type="button">&#23548;&#20986;Excel</button></div>
+            </div>
+            <div class="panel-body"><div id="adjustmentPlan"></div></div>
+          </div>
+          <aside class="panel insight-panel">
+            <div class="panel-head"><button class="panel-toggle" data-toggle-panel type="button">&#24403;&#21069;&#38656;&#27714;&#23545;&#29031;</button></div>
+            <div class="panel-body"><div id="adjustmentInsight"></div></div>
+          </aside>
+        </div>
+        <div class="grid result-grid">
+          <div class="panel">
+            <div class="panel-head"><button class="panel-toggle" data-toggle-panel type="button">&#23458;&#25143;&#38656;&#27714;&#23545;&#29031;&#27719;&#24635;</button></div>
+            <div class="panel-body"><div id="adjustmentDemandSummary"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><button class="panel-toggle" data-toggle-panel type="button">&#35268;&#26684;&#21344;&#27604;&#21442;&#32771;</button></div>
+            <div class="panel-body"><div id="adjustmentSpecRatios" class="subtable"></div></div>
           </div>
         </div>
       </section>
     </main>
 
     <input id="excelImport" class="hidden" type="file" accept=".xlsx,.xlsm" />
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260709-collapsible-dashboard"></script>
   </body>
 </html>
