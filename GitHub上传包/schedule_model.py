@@ -753,8 +753,12 @@ def solve_period(
             status = model.solve(pulp.PULP_CBC_CMD(msg=False))
     if pulp.LpStatus[status] != "Optimal":
         diagnostics = diagnose_period_input(resource, calendar, foreign_days, efficiency, demands, ratios, grade_ratios)
+        key_kind = cn("\u5206\u6790\u9879")
+        key_target = cn("\u5bf9\u8c61")
+        key_status = cn("\u5224\u65ad")
+        key_note = cn("\u8bf4\u660e")
         details = "\n".join(
-            f"- {item[cn('\u5206\u6790\u9879')]}?{item[cn('\u5bf9\u8c61')]}?{item[cn('\u5224\u65ad')]}?{item[cn('\u8bf4\u660e')]}"
+            f"- {item[key_kind]}?{item[key_target]}?{item[key_status]}?{item[key_note]}"
             for item in diagnostics
         )
         exc = ModelInputError(f"{period} \u65e0\u53ef\u884c\u6392\u4ea7\u65b9\u6848\uff1a{pulp.LpStatus[status]}\u3002\u8bf7\u67e5\u770b\u4e0b\u65b9\u4e0d\u53ef\u884c\u539f\u56e0\u5206\u6790\u3002\n{details}")
